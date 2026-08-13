@@ -172,7 +172,7 @@ function replyMenuKeyboard(isStaff = false, lang = "ar") {
   const keyboard = [
     [{ text: t("btn_products", lang) }, { text: t("btn_wallet", lang) }],
     [{ text: t("btn_orders", lang) }, { text: t("btn_search", lang) }],
-    [...(topupsEnabled() ? [{ text: t("btn_topup", lang) }] : []), { text: t("btn_contact_admin", lang) }, { text: t("btn_account", lang) }],
+    [{ text: t("btn_topup", lang) }, { text: t("btn_contact_admin", lang) }, { text: t("btn_account", lang) }],
     [{ text: t("btn_language", lang) }],
   ];
   if (isStaff) {
@@ -186,9 +186,12 @@ function homeKeyboard(isStaff = false, lang = "ar") {
     inline_keyboard: [
       [
         { text: t("btn_home", lang), callback_data: "main:home" },
-        adminContactButton(t("btn_contact_admin", lang)),
+        { text: t("btn_topup", lang), callback_data: "main:topup" },
       ],
-      [{ text: t("btn_language", lang), callback_data: "main:language" }],
+      [
+        adminContactButton(t("btn_contact_admin", lang)),
+        { text: t("btn_language", lang), callback_data: "main:language" },
+      ],
       ...(isStaff ? [[{ text: t("btn_admin_panel", lang), callback_data: "main:admin" }]] : []),
     ],
   };
