@@ -181,6 +181,13 @@ class TelegramApi {
       ...options,
     });
   }
+
+  getChatMember(chatId, userId) {
+    return this.request("getChatMember", {
+      chat_id: chatId,
+      user_id: userId,
+    });
+  }
 }
 
 module.exports = { TelegramApi, sleep };

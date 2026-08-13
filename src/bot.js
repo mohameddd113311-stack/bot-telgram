@@ -93,11 +93,68 @@ function staffStatus(store, superAdmins, userId) {
   };
 }
 
+function adminContactUrl() {
+  const url = String(process.env.ADMIN_CONTACT_URL || "").trim();
+  if (url) return url;
+  const username = String(process.env.ADMIN_USERNAME || "").trim().replace(/^@/, "");
+  if (username) return `https://t.me/${username}`;
+  return null;
+}
+
+function adminContactButton(label = "📞 التواصل مع الأدمن") {
+  const url = adminContactUrl();
+  if (url) return { text: label, url };
+  return { text: label, callback_data: "main:contact_admin" };
+}
+
+function mandatoryGroupConfig() {
+  const chatId = String(process.env.MANDATORY_JOIN_CHAT_ID || "").trim();
+  if (!chatId) return null;
+  let link = String(process.env.MANDATORY_JOIN_LINK || "").trim();
+  if (!link && chatId.startsWith("@")) link = `https://t.me/${chatId.replace(/^@/, "")}`;
+  return {
+    chatId,
+    link: link || "https://t.me/",
+  };
+}
+
+async function checkMandatoryJoin(api, userId) {
+  const config = mandatoryGroupConfig();
+  if (!config) return { ok: true };
+  try {
+    const member = await api.getChatMember(config.chatId, userId);
+    const status = String(member?.status || "").toLowerCase();
+    if (["creator", "administrator", "member"].includes(status)) {
+      return { ok: true };
+    }
+  } catch (error) {
+    log.warn("bot", `Mandatory join check failed for user ${userId}: ${error.message}`);
+  }
+  return { ok: false, config };
+}
+
+async function sendMandatoryJoinPrompt(api, chatId, messageId = null) {
+  const config = mandatoryGroupConfig();
+  const link = config?.link || "https://t.me/";
+  const text = panel("⚠️ تنبيه: الانضمام للجروب إجباري!", [
+    "لاستخدام البوت والاستفادة من خدماتنا، يجب عليك الانضمام إلى قناتنا/جروبنا الرسمي أولاً.",
+    "",
+    "اضغط على الزر أدناه للانضمام، ثم اضغط (✅ تحقق من الانضمام).",
+  ]);
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: "📢 الانضمام للجروب الآن", url: link }],
+      [{ text: "✅ تحقق من الانضمام", callback_data: "check_join" }],
+    ],
+  };
+  await safeEditOrSend(api, chatId, messageId, text, { reply_markup: keyboard });
+}
+
 function replyMenuKeyboard(isStaff = false) {
   const keyboard = [
     [{ text: "🛒 المنتجات" }, { text: "💰 المحفظة" }],
     [{ text: "📦 طلباتي" }, { text: "🔍 بحث" }],
-    [...(topupsEnabled() ? [{ text: "💳 شحن الرصيد" }] : []), { text: "👤 حسابي" }],
+    [...(topupsEnabled() ? [{ text: "💳 شحن الرصيد" }] : []), { text: "📞 التواصل مع الأدمن" }, { text: "👤 حسابي" }],
   ];
   if (isStaff) {
     keyboard.push([{ text: "⚙️ لوحة الإدارة" }]);
@@ -106,7 +163,15 @@ function replyMenuKeyboard(isStaff = false) {
 }
 
 function homeKeyboard(isStaff = false) {
-  return { inline_keyboard: [[{ text: "🏠 القائمة الرئيسية", callback_data: "main:home" }], ...(isStaff ? [[{ text: "⚙️ لوحة الإدارة", callback_data: "main:admin" }]] : [])] };
+  return {
+    inline_keyboard: [
+      [
+        { text: "🏠 القائمة الرئيسية", callback_data: "main:home" },
+        adminContactButton("📞 التواصل مع الأدمن"),
+      ],
+      ...(isStaff ? [[{ text: "⚙️ لوحة الإدارة", callback_data: "main:admin" }]] : []),
+    ],
+  };
 }
 
 function adminKeyboard(isSuperAdmin = false) {
@@ -121,6 +186,7 @@ function adminKeyboard(isSuperAdmin = false) {
     rows.push([{ text: "💵 إضافة رصيد", callback_data: "admin:credit" }, { text: "🔄 تصفير رصيد", callback_data: "admin:zero" }]);
     rows.push([{ text: "👥 الأعضاء", callback_data: "admin:members" }, { text: "🌐 تقرير المنصة الشامل", callback_data: "admin:report" }]);
     rows.push([{ text: "🏷️ تحديد سعر خاص لزبون", callback_data: "admin:custom_price" }]);
+    rows.push([{ text: "📢 إرسال رسالة جماعية", callback_data: "admin:broadcast" }]);
   }
   rows.push([{ text: "🏠 القائمة الرئيسية", callback_data: "main:home" }]);
   return { inline_keyboard: rows };
@@ -181,6 +247,7 @@ function topupKeyboard() {
   return {
     inline_keyboard: [
       ...methods.map((method) => [{ text: `💳 الدفع عبر ${method.label}`, callback_data: `manual_topup:${method.method}` }]),
+      [adminContactButton("📞 التواصل مع الأدمن للشحن المباشر")],
       [{ text: "🏠 القائمة الرئيسية", callback_data: "main:home" }],
     ]
   };
@@ -289,6 +356,22 @@ async function showAccount(api, store, chatId, userId, from = {}, messageId = nu
   await safeEditOrSend(api, chatId, messageId, panel("👤 بيانات حسابي", lines), { parse_mode: "Markdown", reply_markup: homeKeyboard(false) });
 }
 
+async function showContactAdmin(api, store, chatId, messageId = null) {
+  const url = adminContactUrl();
+  const lines = [
+    "💬 خدمة العملاء والدعم الفني",
+    "",
+    url ? "يمكنك التواصل مباشرة مع الأدمن عبر الرابط الأدناه:" : "يرجى التواصل مع مالك البوت أو الأدمن لإدارة حسابك وشحن رصيدك.",
+  ];
+  const keyboard = {
+    inline_keyboard: [
+      ...(url ? [[{ text: "💬 فتح محادثة الأدمن", url }]] : []),
+      [{ text: "🏠 القائمة الرئيسية", callback_data: "main:home" }],
+    ],
+  };
+  await safeEditOrSend(api, chatId, messageId, panel("📞 التواصل مع الأدمن", lines), { reply_markup: keyboard });
+}
+
 async function showAdmin(api, store, superAdmins, chatId, userId, messageId = null) {
   const stf = staffStatus(store, superAdmins, userId);
   if (!stf.isSuperAdmin && !stf.isMerchant) {
@@ -326,12 +409,20 @@ async function notifyStaffAboutAssistedOrder(api, store, superAdmins, result) {
 async function handlePurchaseResult(api, store, superAdmins, chatId, userId, result) {
   if (!result.ok) {
     if (result.reason === "insufficient_balance") {
+      const keyboardRows = [
+        [adminContactButton("📞 التواصل مع الأدمن للشحن")],
+      ];
+      if (topupsEnabled()) {
+        keyboardRows.push([{ text: "💳 طرق الشحن اليدوي", callback_data: "main:topup" }]);
+      }
+      keyboardRows.push([{ text: "🏠 القائمة الرئيسية", callback_data: "main:home" }]);
+
       await api.sendMessage(chatId, panel("⚠️ رصيد المحفظة غير كافٍ", [
         `سعر المنتج: ${formatMoney(result.price)}`,
         `رصيدك الحالي: ${formatMoney(result.balance)}`,
         "",
-        topupsEnabled() ? "يرجى استخدام خيار (شحن الرصيد) لشحن محفظتك وإعادة الشراء." : "يرجى التواصل مع المالك لشحن محفظتك.",
-      ]), { reply_markup: topupsEnabled() ? topupKeyboard() : homeKeyboard(false) });
+        "💡 يرجى التواصل مع الأدمن لشحن محفظتك وإتمام عملية الشراء.",
+      ]), { reply_markup: { inline_keyboard: keyboardRows } });
       return;
     }
     if (result.reason === "sold_out") {
@@ -611,6 +702,29 @@ async function handleStateMessage(api, store, superAdmins, chatId, from, state, 
     return;
   }
 
+  if (state.state === "admin_broadcast") {
+    store.clearState(userId);
+    const userIds = store.getAllUserIds();
+    await api.sendMessage(chatId, `⏳ جاري إرسال الرسالة الجماعية إلى ${userIds.length} عضو...`);
+    let successCount = 0;
+    let failCount = 0;
+    for (const targetId of userIds) {
+      try {
+        await api.sendMessage(targetId, panel("📢 رسالة إدارية هامة", [text]));
+        successCount += 1;
+      } catch {
+        failCount += 1;
+      }
+      await sleep(100);
+    }
+    await api.sendMessage(chatId, panel("📢 اكتمل إرسال الرسالة الجماعية!", [
+      `إجمالي الأعضاء: ${userIds.length}`,
+      `✅ تم الإرسال بنجاح إلى: ${successCount} عضو`,
+      `❌ تعذر الإرسال إلى: ${failCount} عضو (أو قام بإيقاف البوت)`,
+    ]), { reply_markup: adminKeyboard(true) });
+    return;
+  }
+
   return false;
 }
 
@@ -632,18 +746,30 @@ async function handleMessage(api, store, superAdmins, message) {
     }
   }
 
+  const stf = staffStatus(store, superAdmins, userId);
+  if (!stf.isSuperAdmin && !stf.isMerchant) {
+    const joinCheck = await checkMandatoryJoin(api, userId);
+    if (!joinCheck.ok) {
+      await sendMandatoryJoinPrompt(api, chatId);
+      return;
+    }
+  }
+
   // التعامل مع الأزرار الثابتة بالأسفل (Reply Keyboards)
   if (text === "🛒 المنتجات") { store.clearState(userId); await showShop(api, store, chatId); return; }
   if (text === "💰 المحفظة") { store.clearState(userId); await showBalance(api, store, chatId, userId); return; }
   if (text === "📦 طلباتي") { store.clearState(userId); await showOrders(api, store, chatId, userId); return; }
   if (text === "👤 حسابي") { store.clearState(userId); await showAccount(api, store, chatId, userId, from); return; }
+  if (text === "📞 التواصل مع الأدمن") { store.clearState(userId); await showContactAdmin(api, store, chatId); return; }
   if (text === "⚙️ لوحة الإدارة") { store.clearState(userId); await showAdmin(api, store, superAdmins, chatId, userId); return; }
   if (text === "💳 شحن الرصيد") {
     store.clearState(userId);
     if (topupsEnabled()) {
       await api.sendMessage(chatId, panel("💳 شحن المحفظة", ["اختر وسيلة الدفع، ثم أدخل المبلغ وأرسل إثبات التحويل."]), { reply_markup: topupKeyboard() });
     } else {
-      await api.sendMessage(chatId, panel("⚠️ الشحن اليدوي غير متاح", ["تواصل مع الأدمن لإضافة الرصيد يدوياً."]));
+      await api.sendMessage(chatId, panel("⚠️ الشحن عبر المحفظة غير متاح حالياً", ["تواصل مع الأدمن مباشرة لشحن محفظتك."]), {
+        reply_markup: { inline_keyboard: [[adminContactButton("📞 التواصل مع الأدمن للشحن")]] }
+      });
     }
     return;
   }
@@ -707,6 +833,30 @@ async function handleCallback(api, store, superAdmins, query) {
   const data = String(query.data || "");
   await api.answerCallbackQuery(query.id).catch(() => { });
   const stf = staffStatus(store, superAdmins, userId);
+
+  if (data === "check_join") {
+    const joinCheck = await checkMandatoryJoin(api, userId);
+    if (joinCheck.ok) {
+      await api.answerCallbackQuery(query.id, { text: "✅ تم التحقق من انضمامك بنجاح!", show_alert: true }).catch(() => { });
+      await showHome(api, store, superAdmins, chatId, from, messageId);
+    } else {
+      await api.answerCallbackQuery(query.id, { text: "⚠️ لم تنضم إلى الجروب/القناة المطلوب الانضمام إليها بعد! يرجى الانضمام أولاً.", show_alert: true }).catch(() => { });
+    }
+    return;
+  }
+
+  if (data === "main:contact_admin") {
+    await showContactAdmin(api, store, chatId, messageId);
+    return;
+  }
+
+  if (!stf.isSuperAdmin && !stf.isMerchant) {
+    const joinCheck = await checkMandatoryJoin(api, userId);
+    if (!joinCheck.ok) {
+      await sendMandatoryJoinPrompt(api, chatId, messageId);
+      return;
+    }
+  }
 
   if (data === "flow:cancel") {
     store.clearState(userId);
@@ -1012,6 +1162,12 @@ async function handleCallback(api, store, superAdmins, query) {
   if (data === "admin:custom_price") {
     store.setState(userId, "admin_custom_price", {});
     await safeEditOrSend(api, chatId, messageId, "🏷️ أرسل: IDالمستخدم رقم\_المنتج السعر\_الجديد ملاحظة\nمثال: `123456789 1 30 خصم خاص`", { parse_mode: "Markdown", reply_markup: { inline_keyboard: [[{ text: "❌ إلغاء", callback_data: "flow:cancel" }]] } });
+    return;
+  }
+
+  if (data === "admin:broadcast") {
+    store.setState(userId, "admin_broadcast", {});
+    await safeEditOrSend(api, chatId, messageId, "📢 أرسل النص أو الرسالة التي ترغب في تعميمها وإرسالها لجميع أعضاء البوت:", { reply_markup: { inline_keyboard: [[{ text: "❌ إلغاء", callback_data: "flow:cancel" }]] } });
     return;
   }
 

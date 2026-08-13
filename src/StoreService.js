@@ -87,6 +87,11 @@ class StoreService {
     return this.db.prepare("SELECT * FROM users WHERE telegram_id = ?").get(String(userId)) || null;
   }
 
+  getAllUserIds() {
+    const rows = this.db.prepare("SELECT telegram_id FROM users").all();
+    return rows.map((r) => String(r.telegram_id));
+  }
+
   getUserLanguage(userId) {
     return this.getUser(userId)?.language || "ar";
   }
