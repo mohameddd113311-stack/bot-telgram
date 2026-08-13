@@ -216,3 +216,58 @@ test("Telegram receipt flow reaches admins and credits the buyer once", async ()
     }
   }
 });
+
+test("user language switcher updates preference and adjusts menu language", async () => {
+  const { store, cleanup } = fixture();
+  try {
+    const user = telegramUser("5", "ArabicUser");
+    store.ensureUser(user);
+
+    assert.equal(store.getUserLanguage("5"), "ar", "Default language must be Arabic");
+
+    store.setUserLanguage("5", "en");
+    assert.equal(store.getUserLanguage("5"), "en", "User language must be updated to English");
+
+    const api = makeApi();
+
+    // Trigger language menu via callback
+    await handleCallback(api, store, new Set(), {
+      id: "callback-lang-menu",
+      from: user,
+      data: "main:language",
+      message: { chat: { id: 5 }, message_id: 20 },
+    });
+
+    assert.ok(
+      api.calls.some((c) => c.method === "editMessageText" || c.method === "sendMessage"),
+      "Language menu must send or edit message"
+    );
+
+    // Switch back to Arabic via callback
+    await handleCallback(api, store, new Set(), {
+      id: "callback-lang-ar",
+      from: user,
+      data: "lang:ar",
+      message: { chat: { id: 5 }, message_id: 21 },
+    });
+
+    assert.equal(store.getUserLanguage("5"), "ar", "Callback lang:ar must set language to Arabic");
+    assert.ok(
+      api.calls.some((c) => c.method === "answerCallbackQuery" && c.args[0] === "callback-lang-ar"),
+      "Callback query must be answered"
+    );
+
+    // Switch to English via callback
+    await handleCallback(api, store, new Set(), {
+      id: "callback-lang-en",
+      from: user,
+      data: "lang:en",
+      message: { chat: { id: 5 }, message_id: 22 },
+    });
+
+    assert.equal(store.getUserLanguage("5"), "en", "Callback lang:en must set language to English");
+  } finally {
+    cleanup();
+  }
+});
+

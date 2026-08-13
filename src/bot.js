@@ -2,6 +2,7 @@
 //igfuookhfjbodbildk 
 
 const { sleep } = require("./TelegramApi");
+const { t } = require("./i18n");
 
 const log = {
   _fmt(level, tag, msg, ctx) {
@@ -150,28 +151,45 @@ async function sendMandatoryJoinPrompt(api, chatId, messageId = null) {
   await safeEditOrSend(api, chatId, messageId, text, { reply_markup: keyboard });
 }
 
-function replyMenuKeyboard(isStaff = false) {
+function replyMenuKeyboard(isStaff = false, lang = "ar") {
   const keyboard = [
-    [{ text: "🛒 المنتجات" }, { text: "💰 المحفظة" }],
-    [{ text: "📦 طلباتي" }, { text: "🔍 بحث" }],
-    [...(topupsEnabled() ? [{ text: "💳 شحن الرصيد" }] : []), { text: "📞 التواصل مع الأدمن" }, { text: "👤 حسابي" }],
+    [{ text: t("btn_products", lang) }, { text: t("btn_wallet", lang) }],
+    [{ text: t("btn_orders", lang) }, { text: t("btn_search", lang) }],
+    [...(topupsEnabled() ? [{ text: t("btn_topup", lang) }] : []), { text: t("btn_contact_admin", lang) }, { text: t("btn_account", lang) }],
+    [{ text: t("btn_language", lang) }],
   ];
   if (isStaff) {
-    keyboard.push([{ text: "⚙️ لوحة الإدارة" }]);
+    keyboard.push([{ text: t("btn_admin_panel", lang) }]);
   }
   return { keyboard: keyboard, resize_keyboard: true };
 }
 
-function homeKeyboard(isStaff = false) {
+function homeKeyboard(isStaff = false, lang = "ar") {
   return {
     inline_keyboard: [
       [
-        { text: "🏠 القائمة الرئيسية", callback_data: "main:home" },
-        adminContactButton("📞 التواصل مع الأدمن"),
+        { text: t("btn_home", lang), callback_data: "main:home" },
+        adminContactButton(t("btn_contact_admin", lang)),
       ],
-      ...(isStaff ? [[{ text: "⚙️ لوحة الإدارة", callback_data: "main:admin" }]] : []),
+      [{ text: t("btn_language", lang), callback_data: "main:language" }],
+      ...(isStaff ? [[{ text: t("btn_admin_panel", lang), callback_data: "main:admin" }]] : []),
     ],
   };
+}
+
+async function showLanguageMenu(api, store, chatId, userId, messageId = null) {
+  const lang = store.getUserLanguage(userId);
+  const text = panel(t("btn_language", lang), [t("select_language_prompt", lang)]);
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: `${t("btn_lang_ar", lang)}${lang === "ar" ? " ✅" : ""}`, callback_data: "lang:ar" },
+        { text: `${t("btn_lang_en", lang)}${lang === "en" ? " ✅" : ""}`, callback_data: "lang:en" },
+      ],
+      [{ text: t("btn_home", lang), callback_data: "main:home" }],
+    ],
+  };
+  await safeEditOrSend(api, chatId, messageId, text, { reply_markup: keyboard });
 }
 
 function adminKeyboard(isSuperAdmin = false) {
@@ -254,12 +272,13 @@ function topupKeyboard() {
 }
 
 function homeText(store, userId) {
+  const lang = store.getUserLanguage(userId);
   return panel(`متجر ${brandName()}`, [
-    `👋 أهلاً بك في متجرنا الرقمي!`,
+    t("welcome_home", lang),
     "",
-    `💰 رصيد محفظتك الحالي: ${formatMoney(store.balance(userId))}`,
+    t("balance_text", lang, { balance: formatMoney(store.balance(userId)) }),
     "",
-    "👇 استخدم الأزرار أدناه لتصفح المنتجات، إدارة طلباتك، أو شحن محفظتك.",
+    t("home_instructions", lang),
   ]);
 }
 
@@ -298,14 +317,15 @@ async function safeEditOrSend(api, chatId, messageId, text, options = {}) {
 async function showHome(api, store, superAdmins, chatId, from, messageId = null) {
   const id = store.ensureUser(from);
   const stf = staffStatus(store, superAdmins, id);
+  const lang = store.getUserLanguage(id);
 
   // إرسال كيبورد القائمة الثابتة دائماً
-  await api.sendMessage(chatId, "👇 القائمة الرئيسية:", {
-    reply_markup: replyMenuKeyboard(stf.isSuperAdmin || stf.isMerchant),
+  await api.sendMessage(chatId, "👇", {
+    reply_markup: replyMenuKeyboard(stf.isSuperAdmin || stf.isMerchant, lang),
   }).catch(() => { });
 
   await safeEditOrSend(api, chatId, messageId, homeText(store, id), {
-    reply_markup: homeKeyboard(stf.isSuperAdmin || stf.isMerchant),
+    reply_markup: homeKeyboard(stf.isSuperAdmin || stf.isMerchant, lang),
   });
 }
 
@@ -756,13 +776,14 @@ async function handleMessage(api, store, superAdmins, message) {
   }
 
   // التعامل مع الأزرار الثابتة بالأسفل (Reply Keyboards)
-  if (text === "🛒 المنتجات") { store.clearState(userId); await showShop(api, store, chatId); return; }
-  if (text === "💰 المحفظة") { store.clearState(userId); await showBalance(api, store, chatId, userId); return; }
-  if (text === "📦 طلباتي") { store.clearState(userId); await showOrders(api, store, chatId, userId); return; }
-  if (text === "👤 حسابي") { store.clearState(userId); await showAccount(api, store, chatId, userId, from); return; }
-  if (text === "📞 التواصل مع الأدمن") { store.clearState(userId); await showContactAdmin(api, store, chatId); return; }
-  if (text === "⚙️ لوحة الإدارة") { store.clearState(userId); await showAdmin(api, store, superAdmins, chatId, userId); return; }
-  if (text === "💳 شحن الرصيد") {
+  if (text === t("btn_products", "ar") || text === t("btn_products", "en")) { store.clearState(userId); await showShop(api, store, chatId); return; }
+  if (text === t("btn_wallet", "ar") || text === t("btn_wallet", "en")) { store.clearState(userId); await showBalance(api, store, chatId, userId); return; }
+  if (text === t("btn_orders", "ar") || text === t("btn_orders", "en")) { store.clearState(userId); await showOrders(api, store, chatId, userId); return; }
+  if (text === t("btn_account", "ar") || text === t("btn_account", "en")) { store.clearState(userId); await showAccount(api, store, chatId, userId, from); return; }
+  if (text === t("btn_contact_admin", "ar") || text === t("btn_contact_admin", "en")) { store.clearState(userId); await showContactAdmin(api, store, chatId); return; }
+  if (text === t("btn_language", "ar") || text === t("btn_language", "en") || text.includes("اللغة") || text.includes("Language")) { store.clearState(userId); await showLanguageMenu(api, store, chatId, userId); return; }
+  if (text === t("btn_admin_panel", "ar") || text === t("btn_admin_panel", "en")) { store.clearState(userId); await showAdmin(api, store, superAdmins, chatId, userId); return; }
+  if (text === t("btn_topup", "ar") || text === t("btn_topup", "en")) {
     store.clearState(userId);
     if (topupsEnabled()) {
       await api.sendMessage(chatId, panel("💳 شحن المحفظة", ["اختر وسيلة الدفع، ثم أدخل المبلغ وأرسل إثبات التحويل."]), { reply_markup: topupKeyboard() });
@@ -773,7 +794,7 @@ async function handleMessage(api, store, superAdmins, message) {
     }
     return;
   }
-  if (text === "🔍 بحث") {
+  if (text === t("btn_search", "ar") || text === t("btn_search", "en")) {
     store.setState(userId, "search_query", {});
     await api.sendMessage(chatId, "🔍 أرسل اسم المنتج الذي تبحث عنه:", { reply_markup: { inline_keyboard: [[{ text: "❌ إلغاء", callback_data: "flow:cancel" }]] } });
     return;
@@ -847,6 +868,19 @@ async function handleCallback(api, store, superAdmins, query) {
 
   if (data === "main:contact_admin") {
     await showContactAdmin(api, store, chatId, messageId);
+    return;
+  }
+
+  if (data === "main:language") {
+    await showLanguageMenu(api, store, chatId, userId, messageId);
+    return;
+  }
+
+  if (data.startsWith("lang:")) {
+    const targetLang = data.split(":")[1];
+    store.setUserLanguage(userId, targetLang);
+    await api.answerCallbackQuery(query.id, { text: t("lang_changed", targetLang), show_alert: true }).catch(() => { });
+    await showHome(api, store, superAdmins, chatId, from, messageId);
     return;
   }
 
