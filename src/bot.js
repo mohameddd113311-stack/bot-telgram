@@ -96,9 +96,12 @@ function staffStatus(store, superAdmins, userId) {
 
 function adminContactUrl() {
   const url = String(process.env.ADMIN_CONTACT_URL || "").trim();
-  if (url) return url;
+  if (url) {
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    return `https://t.me/${url.replace(/^@/, "")}`;
+  }
   const username = String(process.env.ADMIN_USERNAME || "").trim().replace(/^@/, "");
-  if (username) return `https://t.me/${username}`;
+  if (username && username !== "your_admin_username") return `https://t.me/${username}`;
   return null;
 }
 
@@ -118,10 +121,25 @@ function mandatorySubscriptionsConfig() {
     { key: "MANDATORY_JOIN_CHAT_ID", linkKey: "MANDATORY_JOIN_LINK", labelAr: "📢 الانضمام للجروب الرسمي", labelEn: "📢 Join Official Group" },
   ];
   for (const d of defs) {
-    const chatId = String(process.env[d.key] || "").trim();
-    if (!chatId) continue;
+    let raw = String(process.env[d.key] || "").trim();
     let link = String(process.env[d.linkKey] || "").trim();
-    if (!link && chatId.startsWith("@")) link = `https://t.me/${chatId.replace(/^@/, "")}`;
+    if (!raw && !link) continue;
+
+    let chatId = raw;
+    if (raw.startsWith("http://") || raw.startsWith("https://")) {
+      if (!link) link = raw;
+      const match = raw.match(/t\.me\/([a-zA-Z0-9_]+)$/);
+      if (match && !match[1].startsWith("+")) {
+        chatId = `@${match[1]}`;
+      } else {
+        chatId = "";
+      }
+    }
+
+    if (!link && chatId.startsWith("@")) {
+      link = `https://t.me/${chatId.replace(/^@/, "")}`;
+    }
+
     items.push({
       chatId,
       link: link || "https://t.me/",
@@ -137,6 +155,7 @@ async function checkMandatoryJoin(api, userId) {
   if (!items.length) return { ok: true, missing: [] };
   const missing = [];
   for (const item of items) {
+    if (!item.chatId) continue;
     try {
       const member = await api.getChatMember(item.chatId, userId);
       const status = String(member?.status || "").toLowerCase();
