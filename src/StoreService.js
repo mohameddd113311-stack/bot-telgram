@@ -828,6 +828,22 @@ class StoreService {
       gross: this.db.prepare("SELECT COALESCE(SUM(total_piasters), 0) AS c FROM orders WHERE status IN ('completed','awaiting_delivery')").get().c,
     };
   }
+
+  getMaintenanceMode() {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = 'maintenance_mode'").get();
+    return row ? row.value === "true" : false;
+  }
+
+  setMaintenanceMode(enabled) {
+    const value = enabled ? "true" : "false";
+    const at = nowIso();
+    this.db.prepare(`
+      INSERT INTO settings (key, value, updated_at)
+      VALUES ('maintenance_mode', ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run(value, at);
+    return enabled;
+  }
 }
 
 module.exports = {

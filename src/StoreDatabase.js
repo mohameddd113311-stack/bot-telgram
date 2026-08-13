@@ -175,6 +175,12 @@ function migrate(db) {
       UNIQUE(user_id, product_id)
     );
 
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_products_merchant ON products(merchant_id);
     CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
     CREATE INDEX IF NOT EXISTS idx_stock_product_status ON stock_items(product_id, status);

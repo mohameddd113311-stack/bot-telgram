@@ -46,6 +46,14 @@ const translations = {
     wallet_title: "💰 محفظتي والحساب",
     no_orders: "لا توجد لديك طلبات قائمة أو سابقة حتى الآن.",
     canceled: "❌ تم الإلغاء.",
+    maintenance_alert: "🛠️ البوت حالياً تحت الصيانة، سيعود للعمل خلال نصف ساعة!",
+    maintenance_toggle_on: "🛠️ تفعيل وضع الصيانة (إيقاف البوت)",
+    maintenance_toggle_off: "▶️ إيقاف وضع الصيانة (تفعيل البوت)",
+    topup_select_prompt: "💳 اختر طريقة الشحن المناسبة:",
+    topup_wallet_btn: "📱 محفظة إلكترونية (فودافون/إتصلات/أورنج)",
+    topup_binance_btn: "💳 Binance Pay (باينانس)",
+    topup_wallet_info: "💳 شحن الرصيد عبر المحفظة الإلكترونية\n\n📱 رقم المحفظة للتحويل: `{receiver}`\n\nبعد التحويل أو للاستفسار، يرجى التواصل مباشرة مع الأدمن لشحن حسابك:",
+    topup_binance_info: "💳 شحن الرصيد عبر Binance Pay\n\n🆔 معرف باينانس للتحويل (Binance Pay ID): `{receiver}`\n\nبعد التحويل أو للاستفسار، يرجى التواصل مباشرة مع الأدمن لشحن حسابك:",
   },
   en: {
     // Buttons
@@ -92,6 +100,14 @@ const translations = {
     wallet_title: "💰 My Wallet & Account",
     no_orders: "You have no active or previous orders yet.",
     canceled: "❌ Canceled.",
+    maintenance_alert: "🛠️ The bot is currently under maintenance, it will be back online within 30 minutes!",
+    maintenance_toggle_on: "🛠️ Enable Maintenance Mode",
+    maintenance_toggle_off: "▶️ Disable Maintenance Mode",
+    topup_select_prompt: "💳 Select your preferred top-up method:",
+    topup_wallet_btn: "📱 E-Wallet (Vodafone/Etisalat/Orange)",
+    topup_binance_btn: "💳 Binance Pay",
+    topup_wallet_info: "💳 Top-up via E-Wallet\n\n📱 Wallet receiver number: `{receiver}`\n\nAfter transfer or for inquiries, please contact the admin directly to top up your account:",
+    topup_binance_info: "💳 Top-up via Binance Pay\n\n🆔 Binance Pay ID: `{receiver}`\n\nAfter transfer or for inquiries, please contact the admin directly to top up your account:",
   },
 };
 

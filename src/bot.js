@@ -108,47 +108,64 @@ function adminContactButton(label = "📞 التواصل مع الأدمن") {
   return { text: label, callback_data: "main:contact_admin" };
 }
 
-function mandatoryGroupConfig() {
-  const chatId = String(process.env.MANDATORY_JOIN_CHAT_ID || "").trim();
-  if (!chatId) return null;
-  let link = String(process.env.MANDATORY_JOIN_LINK || "").trim();
-  if (!link && chatId.startsWith("@")) link = `https://t.me/${chatId.replace(/^@/, "")}`;
-  return {
-    chatId,
-    link: link || "https://t.me/",
-  };
+function mandatorySubscriptionsConfig() {
+  const items = [];
+  const defs = [
+    { key: "REQUIRED_CHANNEL_1", linkKey: "REQUIRED_CHANNEL_1_LINK", labelAr: "📢 الانضمام للقناة الأولى", labelEn: "📢 Join Channel 1" },
+    { key: "REQUIRED_CHANNEL_2", linkKey: "REQUIRED_CHANNEL_2_LINK", labelAr: "📢 الانضمام للقناة الثانية", labelEn: "📢 Join Channel 2" },
+    { key: "REQUIRED_GROUP_1", linkKey: "REQUIRED_GROUP_1_LINK", labelAr: "💬 الانضمام للجروب الأول", labelEn: "💬 Join Group 1" },
+    { key: "REQUIRED_GROUP_2", linkKey: "REQUIRED_GROUP_2_LINK", labelAr: "💬 الانضمام للجروب الثاني", labelEn: "💬 Join Group 2" },
+    { key: "MANDATORY_JOIN_CHAT_ID", linkKey: "MANDATORY_JOIN_LINK", labelAr: "📢 الانضمام للجروب الرسمي", labelEn: "📢 Join Official Group" },
+  ];
+  for (const d of defs) {
+    const chatId = String(process.env[d.key] || "").trim();
+    if (!chatId) continue;
+    let link = String(process.env[d.linkKey] || "").trim();
+    if (!link && chatId.startsWith("@")) link = `https://t.me/${chatId.replace(/^@/, "")}`;
+    items.push({
+      chatId,
+      link: link || "https://t.me/",
+      labelAr: d.labelAr,
+      labelEn: d.labelEn,
+    });
+  }
+  return items;
 }
 
 async function checkMandatoryJoin(api, userId) {
-  const config = mandatoryGroupConfig();
-  if (!config) return { ok: true };
-  try {
-    const member = await api.getChatMember(config.chatId, userId);
-    const status = String(member?.status || "").toLowerCase();
-    if (["creator", "administrator", "member"].includes(status)) {
-      return { ok: true };
+  const items = mandatorySubscriptionsConfig();
+  if (!items.length) return { ok: true, missing: [] };
+  const missing = [];
+  for (const item of items) {
+    try {
+      const member = await api.getChatMember(item.chatId, userId);
+      const status = String(member?.status || "").toLowerCase();
+      if (!["creator", "administrator", "member"].includes(status)) {
+        missing.push(item);
+      }
+    } catch (error) {
+      log.warn("bot", `Mandatory join check failed for user ${userId} on ${item.chatId}: ${error.message}`);
+      missing.push(item);
     }
-  } catch (error) {
-    log.warn("bot", `Mandatory join check failed for user ${userId}: ${error.message}`);
   }
-  return { ok: false, config };
+  if (missing.length) return { ok: false, missing };
+  return { ok: true, missing: [] };
 }
 
-async function sendMandatoryJoinPrompt(api, chatId, messageId = null) {
-  const config = mandatoryGroupConfig();
-  const link = config?.link || "https://t.me/";
-  const text = panel("⚠️ تنبيه: الانضمام للجروب إجباري!", [
-    "لاستخدام البوت والاستفادة من خدماتنا، يجب عليك الانضمام إلى قناتنا/جروبنا الرسمي أولاً.",
-    "",
-    "اضغط على الزر أدناه للانضمام، ثم اضغط (✅ تحقق من الانضمام).",
+async function sendMandatoryJoinPrompt(api, store, chatId, userId, messageId = null) {
+  const check = await checkMandatoryJoin(api, userId);
+  if (check.ok) return true;
+  const lang = store ? store.getUserLanguage(userId) : "ar";
+  const text = panel(t("mandatory_join_title", lang), [
+    t("mandatory_join_body", lang),
   ]);
-  const keyboard = {
-    inline_keyboard: [
-      [{ text: "📢 الانضمام للجروب الآن", url: link }],
-      [{ text: "✅ تحقق من الانضمام", callback_data: "check_join" }],
-    ],
-  };
-  await safeEditOrSend(api, chatId, messageId, text, { reply_markup: keyboard });
+  const rows = check.missing.map((item) => [{
+    text: lang === "en" ? item.labelEn : item.labelAr,
+    url: item.link,
+  }]);
+  rows.push([{ text: t("btn_check_join", lang), callback_data: "check_join" }]);
+  await safeEditOrSend(api, chatId, messageId, text, { reply_markup: { inline_keyboard: rows } });
+  return false;
 }
 
 function replyMenuKeyboard(isStaff = false, lang = "ar") {
@@ -192,7 +209,7 @@ async function showLanguageMenu(api, store, chatId, userId, messageId = null) {
   await safeEditOrSend(api, chatId, messageId, text, { reply_markup: keyboard });
 }
 
-function adminKeyboard(isSuperAdmin = false) {
+function adminKeyboard(isSuperAdmin = false, isMaintenance = false) {
   const rows = [
     [{ text: "➕ إضافة منتج جديد", callback_data: "merchant:create_product" }, { text: "📦 منتجاتي والمخزون", callback_data: "merchant:products" }],
     [{ text: "⏳ الطلبات المعلقة", callback_data: "merchant:orders" }, { text: "📊 تقارير الأرباح", callback_data: "merchant:reports" }],
@@ -205,6 +222,7 @@ function adminKeyboard(isSuperAdmin = false) {
     rows.push([{ text: "👥 الأعضاء", callback_data: "admin:members" }, { text: "🌐 تقرير المنصة الشامل", callback_data: "admin:report" }]);
     rows.push([{ text: "🏷️ تحديد سعر خاص لزبون", callback_data: "admin:custom_price" }]);
     rows.push([{ text: "📢 إرسال رسالة جماعية", callback_data: "admin:broadcast" }]);
+    rows.push([{ text: isMaintenance ? "▶️ إيقاف وضع الصيانة (تفعيل البوت)" : "🛠️ تفعيل وضع الصيانة (إيقاف البوت)", callback_data: "admin:toggle_maintenance" }]);
   }
   rows.push([{ text: "🏠 القائمة الرئيسية", callback_data: "main:home" }]);
   return { inline_keyboard: rows };
@@ -392,6 +410,20 @@ async function showContactAdmin(api, store, chatId, messageId = null) {
   await safeEditOrSend(api, chatId, messageId, panel("📞 التواصل مع الأدمن", lines), { reply_markup: keyboard });
 }
 
+async function showTopupMenu(api, store, chatId, userId, messageId = null) {
+  const lang = store.getUserLanguage(userId);
+  const text = panel(t("btn_topup", lang), [t("topup_select_prompt", lang)]);
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: t("topup_wallet_btn", lang), callback_data: "topup_select:wallet" }],
+      [{ text: t("topup_binance_btn", lang), callback_data: "topup_select:binance" }],
+      [adminContactButton(t("btn_contact_admin_topup", lang))],
+      [{ text: t("btn_home", lang), callback_data: "main:home" }],
+    ],
+  };
+  await safeEditOrSend(api, chatId, messageId, text, { reply_markup: keyboard });
+}
+
 async function showAdmin(api, store, superAdmins, chatId, userId, messageId = null) {
   const stf = staffStatus(store, superAdmins, userId);
   if (!stf.isSuperAdmin && !stf.isMerchant) {
@@ -399,12 +431,14 @@ async function showAdmin(api, store, superAdmins, chatId, userId, messageId = nu
     return;
   }
   const stats = store.merchantStats(userId);
+  const isMaint = store.getMaintenanceMode();
   await safeEditOrSend(api, chatId, messageId, panel("⚙️ لوحة الإدارة والتحكم", [
     `📦 عدد منتجاتك: ${stats.product_count || 0}`,
     `🛍️ إجمالي الطلبات: ${stats.order_count || 0}`,
     `⏳ طلبات قيد التسليم: ${stats.pending_delivery || 0}`,
     `💵 إجمالي الإيرادات: ${formatMoney(stats.gross_piasters || 0)}`,
-  ]), { reply_markup: adminKeyboard(stf.isSuperAdmin) });
+    isMaint ? "⚠️ وضع الصيانة مفعل حالياً (البوت متوقف بالنسبة للمستخدمين)" : "🟢 البوت يعمل حالياً لجميع المستخدمين",
+  ]), { reply_markup: adminKeyboard(stf.isSuperAdmin, isMaint) });
 }
 
 async function notifyStaffAboutAssistedOrder(api, store, superAdmins, result) {
@@ -767,10 +801,17 @@ async function handleMessage(api, store, superAdmins, message) {
   }
 
   const stf = staffStatus(store, superAdmins, userId);
+  const isMaint = store.getMaintenanceMode();
+  if (isMaint && !stf.isSuperAdmin && !stf.isMerchant) {
+    const lang = store.getUserLanguage(userId);
+    await api.sendMessage(chatId, t("maintenance_alert", lang)).catch(() => { });
+    return;
+  }
+
   if (!stf.isSuperAdmin && !stf.isMerchant) {
     const joinCheck = await checkMandatoryJoin(api, userId);
     if (!joinCheck.ok) {
-      await sendMandatoryJoinPrompt(api, chatId);
+      await sendMandatoryJoinPrompt(api, store, chatId, userId);
       return;
     }
   }
@@ -785,13 +826,7 @@ async function handleMessage(api, store, superAdmins, message) {
   if (text === t("btn_admin_panel", "ar") || text === t("btn_admin_panel", "en")) { store.clearState(userId); await showAdmin(api, store, superAdmins, chatId, userId); return; }
   if (text === t("btn_topup", "ar") || text === t("btn_topup", "en")) {
     store.clearState(userId);
-    if (topupsEnabled()) {
-      await api.sendMessage(chatId, panel("💳 شحن المحفظة", ["اختر وسيلة الدفع، ثم أدخل المبلغ وأرسل إثبات التحويل."]), { reply_markup: topupKeyboard() });
-    } else {
-      await api.sendMessage(chatId, panel("⚠️ الشحن عبر المحفظة غير متاح حالياً", ["تواصل مع الأدمن مباشرة لشحن محفظتك."]), {
-        reply_markup: { inline_keyboard: [[adminContactButton("📞 التواصل مع الأدمن للشحن")]] }
-      });
-    }
+    await showTopupMenu(api, store, chatId, userId);
     return;
   }
   if (text === t("btn_search", "ar") || text === t("btn_search", "en")) {
@@ -807,13 +842,12 @@ async function handleMessage(api, store, superAdmins, message) {
   }
   if (isCommand(text, "help")) {
     store.clearState(userId);
-    const stf = staffStatus(store, superAdmins, userId);
     const helpLines = [
       "🛒 المنتجات — تصفح المتجر والمنتجات المتاحة",
       "💰 المحفظة — عرض رصيدك وآخر العمليات",
       "📦 طلباتي — سجل مشترياتك وحالة الطلبات",
       "👤 حسابي — بياناتك الشخصية",
-      topupsEnabled() ? "💳 شحن الرصيد — تحويل يدوي عبر محفظة أو Binance مع إرسال الإيصال" : "",
+      "💳 شحن الرصيد — اختيار وسيلة الدفع والتواصل مع الأدمن",
       "",
       "الأوامر المتاحة:",
       "/start — القائمة الرئيسية",
@@ -855,13 +889,22 @@ async function handleCallback(api, store, superAdmins, query) {
   await api.answerCallbackQuery(query.id).catch(() => { });
   const stf = staffStatus(store, superAdmins, userId);
 
+  const isMaint = store.getMaintenanceMode();
+  if (isMaint && !stf.isSuperAdmin && !stf.isMerchant) {
+    const lang = store.getUserLanguage(userId);
+    await api.answerCallbackQuery(query.id, { text: t("maintenance_alert", lang), show_alert: true }).catch(() => { });
+    await safeEditOrSend(api, chatId, messageId, t("maintenance_alert", lang));
+    return;
+  }
+
   if (data === "check_join") {
     const joinCheck = await checkMandatoryJoin(api, userId);
+    const lang = store.getUserLanguage(userId);
     if (joinCheck.ok) {
-      await api.answerCallbackQuery(query.id, { text: "✅ تم التحقق من انضمامك بنجاح!", show_alert: true }).catch(() => { });
+      await api.answerCallbackQuery(query.id, { text: t("join_success", lang), show_alert: true }).catch(() => { });
       await showHome(api, store, superAdmins, chatId, from, messageId);
     } else {
-      await api.answerCallbackQuery(query.id, { text: "⚠️ لم تنضم إلى الجروب/القناة المطلوب الانضمام إليها بعد! يرجى الانضمام أولاً.", show_alert: true }).catch(() => { });
+      await api.answerCallbackQuery(query.id, { text: t("join_failed", lang), show_alert: true }).catch(() => { });
     }
     return;
   }
@@ -884,10 +927,42 @@ async function handleCallback(api, store, superAdmins, query) {
     return;
   }
 
+  if (data === "topup_select:wallet") {
+    const receiver = String(process.env.MANUAL_WALLET_RECEIVER || "غير محدد").trim();
+    const lang = store.getUserLanguage(userId);
+    const text = panel(t("topup_wallet_btn", lang), [
+      t("topup_wallet_info", lang, { receiver }),
+    ]);
+    const keyboard = {
+      inline_keyboard: [
+        [adminContactButton(t("btn_contact_admin_topup", lang))],
+        [{ text: t("btn_home", lang), callback_data: "main:home" }],
+      ],
+    };
+    await safeEditOrSend(api, chatId, messageId, text, { parse_mode: "Markdown", reply_markup: keyboard });
+    return;
+  }
+
+  if (data === "topup_select:binance") {
+    const receiver = String(process.env.MANUAL_BINANCE_RECEIVER || "غير محدد").trim();
+    const lang = store.getUserLanguage(userId);
+    const text = panel(t("topup_binance_btn", lang), [
+      t("topup_binance_info", lang, { receiver }),
+    ]);
+    const keyboard = {
+      inline_keyboard: [
+        [adminContactButton(t("btn_contact_admin_topup", lang))],
+        [{ text: t("btn_home", lang), callback_data: "main:home" }],
+      ],
+    };
+    await safeEditOrSend(api, chatId, messageId, text, { parse_mode: "Markdown", reply_markup: keyboard });
+    return;
+  }
+
   if (!stf.isSuperAdmin && !stf.isMerchant) {
     const joinCheck = await checkMandatoryJoin(api, userId);
     if (!joinCheck.ok) {
-      await sendMandatoryJoinPrompt(api, chatId, messageId);
+      await sendMandatoryJoinPrompt(api, store, chatId, userId, messageId);
       return;
     }
   }
@@ -909,11 +984,7 @@ async function handleCallback(api, store, superAdmins, query) {
   if (data === "main:admin") { await showAdmin(api, store, superAdmins, chatId, userId, messageId); return; }
 
   if (data === "main:topup") {
-    if (!topupsEnabled()) {
-      await safeEditOrSend(api, chatId, messageId, panel("⚠️ الشحن اليدوي غير متاح", ["تواصل مع الأدمن لإضافة الرصيد يدوياً."]), { reply_markup: homeKeyboard(false) });
-      return;
-    }
-    await safeEditOrSend(api, chatId, messageId, panel("💳 شحن المحفظة", ["اختر وسيلة الدفع، ثم أدخل المبلغ وأرسل إثبات التحويل."]), { reply_markup: topupKeyboard() });
+    await showTopupMenu(api, store, chatId, userId, messageId);
     return;
   }
 
@@ -1202,6 +1273,21 @@ async function handleCallback(api, store, superAdmins, query) {
   if (data === "admin:broadcast") {
     store.setState(userId, "admin_broadcast", {});
     await safeEditOrSend(api, chatId, messageId, "📢 أرسل النص أو الرسالة التي ترغب في تعميمها وإرسالها لجميع أعضاء البوت:", { reply_markup: { inline_keyboard: [[{ text: "❌ إلغاء", callback_data: "flow:cancel" }]] } });
+    return;
+  }
+
+  if (data === "admin:toggle_maintenance") {
+    const current = store.getMaintenanceMode();
+    const next = !current;
+    store.setMaintenanceMode(next);
+    const stats = store.merchantStats(userId);
+    await safeEditOrSend(api, chatId, messageId, panel("⚙️ لوحة الإدارة والتحكم", [
+      `📦 عدد منتجاتك: ${stats.product_count || 0}`,
+      `🛍️ إجمالي الطلبات: ${stats.order_count || 0}`,
+      `⏳ طلبات قيد التسليم: ${stats.pending_delivery || 0}`,
+      `💵 إجمالي الإيرادات: ${formatMoney(stats.gross_piasters || 0)}`,
+      next ? "⚠️ تم تفعيل وضع الصيانة! (البوت متوقف حالياً للمستخدمين)" : "🟢 تم إيقاف وضع الصيانة! (البوت يعمل الآن للجميع)",
+    ]), { reply_markup: adminKeyboard(stf.isSuperAdmin, next) });
     return;
   }
 

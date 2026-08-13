@@ -271,3 +271,86 @@ test("user language switcher updates preference and adjusts menu language", asyn
   }
 });
 
+test("maintenance mode blocks normal users but allows super admins", async () => {
+  const { store, cleanup } = fixture();
+  try {
+    const admin = telegramUser("1", "Admin");
+    const normalUser = telegramUser("10", "Normal");
+    store.ensureUser(admin);
+    store.ensureSuperAdmin("1", { displayName: "Admin" });
+    store.ensureUser(normalUser);
+
+    assert.equal(store.getMaintenanceMode(), false);
+    store.setMaintenanceMode(true);
+    assert.equal(store.getMaintenanceMode(), true);
+
+    const api = makeApi();
+    const superAdmins = new Set(["1"]);
+
+    // Normal user message when maintenance mode is active
+    await handleMessage(api, store, superAdmins, { chat: { id: 10 }, from: normalUser, text: "🛒 المنتجات" });
+    assert.ok(
+      api.calls.some((c) => c.method === "sendMessage" && c.args[1].includes("تحت الصيانة")),
+      "Normal user must receive maintenance alert"
+    );
+
+    // Admin message when maintenance mode is active
+    api.calls.length = 0;
+    await handleMessage(api, store, superAdmins, { chat: { id: 1 }, from: admin, text: "⚙️ لوحة الإدارة" });
+    assert.ok(
+      api.calls.some((c) => c.method === "sendMessage" || c.method === "editMessageText"),
+      "Super admin must still access bot during maintenance"
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("topup selection displays wallet and binance receiver details", async () => {
+  const originalEnv = {
+    MANUAL_WALLET_RECEIVER: process.env.MANUAL_WALLET_RECEIVER,
+    MANUAL_BINANCE_RECEIVER: process.env.MANUAL_BINANCE_RECEIVER,
+  };
+  process.env.MANUAL_WALLET_RECEIVER = "01099998888";
+  process.env.MANUAL_BINANCE_RECEIVER = "987654321";
+
+  const { store, cleanup } = fixture();
+  try {
+    const user = telegramUser("20", "TopupUser");
+    store.ensureUser(user);
+    const api = makeApi();
+
+    // Select wallet topup
+    await handleCallback(api, store, new Set(), {
+      id: "callback-topup-wallet",
+      from: user,
+      data: "topup_select:wallet",
+      message: { chat: { id: 20 }, message_id: 30 },
+    });
+    assert.ok(
+      api.calls.some((c) => (c.method === "editMessageText" || c.method === "sendMessage") && String(c.args[2] || c.args[1]).includes("01099998888")),
+      "Wallet receiver number must be displayed"
+    );
+
+    // Select binance topup
+    api.calls.length = 0;
+    await handleCallback(api, store, new Set(), {
+      id: "callback-topup-binance",
+      from: user,
+      data: "topup_select:binance",
+      message: { chat: { id: 20 }, message_id: 31 },
+    });
+    assert.ok(
+      api.calls.some((c) => (c.method === "editMessageText" || c.method === "sendMessage") && String(c.args[2] || c.args[1]).includes("987654321")),
+      "Binance Pay ID must be displayed"
+    );
+  } finally {
+    cleanup();
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+
